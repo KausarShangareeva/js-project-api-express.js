@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import mongoose from "mongoose";
+import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -13,6 +14,30 @@ app.use(express.json());
 const mongoURL = process.env.MONGO_URL || "mongodb://localhost/happythoughts";
 mongoose.connect(mongoURL);
 mongoose.Promise = Promise;
+
+// --- User Model ---
+const User = mongoose.model("User", {
+  name: {
+    type: String,
+    required: [true, "Name is required"],
+    minlength: [2, "Name must be at least 2 characters"],
+  },
+  email: {
+    type: String,
+    required: [true, "Email is required"],
+    unique: true,
+    match: [/.+@.+\..+/, "Please enter a valid email"],
+  },
+  password: {
+    type: String,
+    required: [true, "Password is required"],
+    minlength: [6, "Password must be at least 6 characters"],
+  },
+  accessToken: {
+    type: String,
+    default: () => bcrypt.genSaltSync(),
+  },
+});
 
 // --- Thought Model ---
 const Thought = mongoose.model("Thought", {
@@ -30,24 +55,41 @@ const Thought = mongoose.model("Thought", {
     type: Date,
     default: Date.now,
   },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
 });
 
+// --- Auth Middleware ---
+const auth = async (req, res, next) => {
+  const token = req.header("Authorization");
+  if (!token) {
+    return res.status(401).json({ error: "Not logged in" });
+  }
+  const user = await User.findOne({ accessToken: token });
+  if (!user) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+  req.user = user;
+  next();
+};
+
 // --- Seed database ---
-// Set RESET_DB=true in .env to seed on startup
 if (process.env.RESET_DB === "true") {
   const seedDB = async () => {
     await Thought.deleteMany();
     const thoughts = [
-      { message: "Berlin baby", hearts: 37 },
-      { message: "My family!", hearts: 0 },
-      { message: "The smell of coffee in the morning....", hearts: 23 },
-      { message: "Summer is coming...", hearts: 2 },
-      { message: "Cute monkeys", hearts: 2 },
-      { message: "The weather is nice!", hearts: 0 },
-      { message: "Netflix and late night ice-cream", hearts: 1 },
-      { message: "good vibes and good things", hearts: 3 },
-      { message: "cold beer", hearts: 2 },
-      { message: "I am happy that I feel healthy and have energy again", hearts: 13 },
+      { message: "Code is like humor. When you have to explain it, it's bad.", hearts: 12 },
+      { message: "First, solve the problem. Then, write the code.", hearts: 25 },
+      { message: "The best error message is the one that never shows up.", hearts: 8 },
+      { message: "Talk is cheap. Show me the code.", hearts: 31 },
+      { message: "It works on my machine! Then we ship your machine.", hearts: 19 },
+      { message: "Simplicity is the soul of efficiency.", hearts: 14 },
+      { message: "Make it work, make it right, make it fast.", hearts: 22 },
+      { message: "Every great developer you know got there by solving problems they were unqualified to solve.", hearts: 17 },
+      { message: "The only way to learn a new programming language is by writing programs in it.", hearts: 9 },
+      { message: "Programming is the art of telling another human what one wants the computer to do.", hearts: 11 },
     ];
     await Thought.insertMany(thoughts);
     console.log("Database seeded!");
@@ -62,20 +104,69 @@ app.get("/", (req, res) => {
   res.json({
     name: "Happy Thoughts API",
     endpoints: [
+      { method: "POST", path: "/register", description: "Register a new user" },
+      { method: "POST", path: "/login", description: "Login" },
       { method: "GET", path: "/thoughts", description: "Get all thoughts" },
       { method: "GET", path: "/thoughts/:id", description: "Get one thought" },
-      { method: "POST", path: "/thoughts", description: "Create a thought" },
-      { method: "PATCH", path: "/thoughts/:id", description: "Update a thought" },
-      { method: "DELETE", path: "/thoughts/:id", description: "Delete a thought" },
+      { method: "POST", path: "/thoughts", description: "Create a thought (auth)" },
+      { method: "PATCH", path: "/thoughts/:id", description: "Update a thought (auth)" },
+      { method: "DELETE", path: "/thoughts/:id", description: "Delete a thought (auth)" },
       { method: "POST", path: "/thoughts/:id/like", description: "Like a thought" },
     ],
   });
 });
 
+// POST /register - create a new user
+app.post("/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ error: "That email address already exists" });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await new User({ name, email, password: hashedPassword }).save();
+    res.status(201).json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      accessToken: user.accessToken,
+    });
+  } catch (err) {
+    res.status(400).json({ error: "Could not register", details: err.message });
+  }
+});
+
+// POST /login - login
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Wrong password" });
+    }
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      accessToken: user.accessToken,
+    });
+  } catch (err) {
+    res.status(400).json({ error: "Could not login", details: err.message });
+  }
+});
+
 // GET /thoughts - get all thoughts (newest first)
 app.get("/thoughts", async (req, res) => {
   try {
-    const thoughts = await Thought.find().sort({ createdAt: -1 }).limit(20);
+    const thoughts = await Thought.find()
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .populate("user", "name");
     res.json(thoughts);
   } catch (err) {
     res.status(400).json({ error: "Could not get thoughts" });
@@ -85,7 +176,7 @@ app.get("/thoughts", async (req, res) => {
 // GET /thoughts/:id - get one thought
 app.get("/thoughts/:id", async (req, res) => {
   try {
-    const thought = await Thought.findById(req.params.id);
+    const thought = await Thought.findById(req.params.id).populate("user", "name");
     if (!thought) {
       return res.status(404).json({ error: "Thought not found" });
     }
@@ -95,40 +186,50 @@ app.get("/thoughts/:id", async (req, res) => {
   }
 });
 
-// POST /thoughts - create a new thought
-app.post("/thoughts", async (req, res) => {
+// POST /thoughts - create a new thought (auth required)
+app.post("/thoughts", auth, async (req, res) => {
   try {
-    const thought = await new Thought({ message: req.body.message }).save();
-    res.status(201).json(thought);
+    const thought = await new Thought({
+      message: req.body.message,
+      user: req.user._id,
+    }).save();
+    const populated = await thought.populate("user", "name");
+    res.status(201).json(populated);
   } catch (err) {
     res.status(400).json({ error: "Could not save thought", details: err.message });
   }
 });
 
-// PATCH /thoughts/:id - update a thought
-app.patch("/thoughts/:id", async (req, res) => {
+// PATCH /thoughts/:id - update a thought (auth, only owner)
+app.patch("/thoughts/:id", auth, async (req, res) => {
   try {
-    const thought = await Thought.findByIdAndUpdate(
-      req.params.id,
-      { message: req.body.message },
-      { new: true, runValidators: true }
-    );
+    const thought = await Thought.findById(req.params.id);
     if (!thought) {
       return res.status(404).json({ error: "Thought not found" });
     }
-    res.json(thought);
+    if (String(thought.user) !== String(req.user._id)) {
+      return res.status(403).json({ error: "You can only edit your own thoughts" });
+    }
+    thought.message = req.body.message;
+    await thought.save();
+    const populated = await thought.populate("user", "name");
+    res.json(populated);
   } catch (err) {
     res.status(400).json({ error: "Could not update thought", details: err.message });
   }
 });
 
-// DELETE /thoughts/:id - delete a thought
-app.delete("/thoughts/:id", async (req, res) => {
+// DELETE /thoughts/:id - delete a thought (auth, only owner)
+app.delete("/thoughts/:id", auth, async (req, res) => {
   try {
-    const thought = await Thought.findByIdAndDelete(req.params.id);
+    const thought = await Thought.findById(req.params.id);
     if (!thought) {
       return res.status(404).json({ error: "Thought not found" });
     }
+    if (String(thought.user) !== String(req.user._id)) {
+      return res.status(403).json({ error: "You can only delete your own thoughts" });
+    }
+    await thought.deleteOne();
     res.json(thought);
   } catch (err) {
     res.status(400).json({ error: "Could not delete thought" });
