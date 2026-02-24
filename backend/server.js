@@ -12,6 +12,7 @@ app.use(express.json());
 
 // Connect to MongoDB
 const mongoURL = process.env.MONGO_URL || "mongodb://localhost/happythoughts";
+
 mongoose.connect(mongoURL);
 mongoose.Promise = Promise;
 
@@ -80,16 +81,40 @@ if (process.env.RESET_DB === "true") {
   const seedDB = async () => {
     await Thought.deleteMany();
     const thoughts = [
-      { message: "Code is like humor. When you have to explain it, it's bad.", hearts: 12 },
-      { message: "First, solve the problem. Then, write the code.", hearts: 25 },
-      { message: "The best error message is the one that never shows up.", hearts: 8 },
+      {
+        message: "Code is like humor. When you have to explain it, it's bad.",
+        hearts: 12,
+      },
+      {
+        message: "First, solve the problem. Then, write the code.",
+        hearts: 25,
+      },
+      {
+        message: "The best error message is the one that never shows up.",
+        hearts: 8,
+      },
       { message: "Talk is cheap. Show me the code.", hearts: 31 },
-      { message: "It works on my machine! Then we ship your machine.", hearts: 19 },
+      {
+        message: "It works on my machine! Then we ship your machine.",
+        hearts: 19,
+      },
       { message: "Simplicity is the soul of efficiency.", hearts: 14 },
       { message: "Make it work, make it right, make it fast.", hearts: 22 },
-      { message: "Every great developer you know got there by solving problems they were unqualified to solve.", hearts: 17 },
-      { message: "The only way to learn a new programming language is by writing programs in it.", hearts: 9 },
-      { message: "Programming is the art of telling another human what one wants the computer to do.", hearts: 11 },
+      {
+        message:
+          "Every great developer you know got there by solving problems they were unqualified to solve.",
+        hearts: 17,
+      },
+      {
+        message:
+          "The only way to learn a new programming language is by writing programs in it.",
+        hearts: 9,
+      },
+      {
+        message:
+          "Programming is the art of telling another human what one wants the computer to do.",
+        hearts: 11,
+      },
     ];
     await Thought.insertMany(thoughts);
     console.log("Database seeded!");
@@ -108,10 +133,26 @@ app.get("/", (req, res) => {
       { method: "POST", path: "/login", description: "Login" },
       { method: "GET", path: "/thoughts", description: "Get all thoughts" },
       { method: "GET", path: "/thoughts/:id", description: "Get one thought" },
-      { method: "POST", path: "/thoughts", description: "Create a thought (auth)" },
-      { method: "PATCH", path: "/thoughts/:id", description: "Update a thought (auth)" },
-      { method: "DELETE", path: "/thoughts/:id", description: "Delete a thought (auth)" },
-      { method: "POST", path: "/thoughts/:id/like", description: "Like a thought" },
+      {
+        method: "POST",
+        path: "/thoughts",
+        description: "Create a thought (auth)",
+      },
+      {
+        method: "PATCH",
+        path: "/thoughts/:id",
+        description: "Update a thought (auth)",
+      },
+      {
+        method: "DELETE",
+        path: "/thoughts/:id",
+        description: "Delete a thought (auth)",
+      },
+      {
+        method: "POST",
+        path: "/thoughts/:id/like",
+        description: "Like a thought",
+      },
     ],
   });
 });
@@ -122,10 +163,16 @@ app.post("/register", async (req, res) => {
     const { name, email, password } = req.body;
     const existing = await User.findOne({ email });
     if (existing) {
-      return res.status(400).json({ error: "That email address already exists" });
+      return res
+        .status(400)
+        .json({ error: "That email address already exists" });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await new User({ name, email, password: hashedPassword }).save();
+    const user = await new User({
+      name,
+      email,
+      password: hashedPassword,
+    }).save();
     res.status(201).json({
       id: user._id,
       name: user.name,
@@ -176,7 +223,10 @@ app.get("/thoughts", async (req, res) => {
 // GET /thoughts/:id - get one thought
 app.get("/thoughts/:id", async (req, res) => {
   try {
-    const thought = await Thought.findById(req.params.id).populate("user", "name");
+    const thought = await Thought.findById(req.params.id).populate(
+      "user",
+      "name",
+    );
     if (!thought) {
       return res.status(404).json({ error: "Thought not found" });
     }
@@ -196,7 +246,9 @@ app.post("/thoughts", auth, async (req, res) => {
     const populated = await thought.populate("user", "name");
     res.status(201).json(populated);
   } catch (err) {
-    res.status(400).json({ error: "Could not save thought", details: err.message });
+    res
+      .status(400)
+      .json({ error: "Could not save thought", details: err.message });
   }
 });
 
@@ -208,14 +260,18 @@ app.patch("/thoughts/:id", auth, async (req, res) => {
       return res.status(404).json({ error: "Thought not found" });
     }
     if (String(thought.user) !== String(req.user._id)) {
-      return res.status(403).json({ error: "You can only edit your own thoughts" });
+      return res
+        .status(403)
+        .json({ error: "You can only edit your own thoughts" });
     }
     thought.message = req.body.message;
     await thought.save();
     const populated = await thought.populate("user", "name");
     res.json(populated);
   } catch (err) {
-    res.status(400).json({ error: "Could not update thought", details: err.message });
+    res
+      .status(400)
+      .json({ error: "Could not update thought", details: err.message });
   }
 });
 
@@ -227,7 +283,9 @@ app.delete("/thoughts/:id", auth, async (req, res) => {
       return res.status(404).json({ error: "Thought not found" });
     }
     if (String(thought.user) !== String(req.user._id)) {
-      return res.status(403).json({ error: "You can only delete your own thoughts" });
+      return res
+        .status(403)
+        .json({ error: "You can only delete your own thoughts" });
     }
     await thought.deleteOne();
     res.json(thought);
@@ -242,7 +300,7 @@ app.post("/thoughts/:id/like", async (req, res) => {
     const thought = await Thought.findByIdAndUpdate(
       req.params.id,
       { $inc: { hearts: 1 } },
-      { new: true }
+      { new: true },
     );
     if (!thought) {
       return res.status(404).json({ error: "Thought not found" });
